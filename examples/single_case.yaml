@@ -1,0 +1,3 @@
+# Minimal example input for scripts/run_single.py.
+config: ../configs/project.yaml
+params: ../configs/parameters.example.yaml

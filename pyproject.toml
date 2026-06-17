@@ -1,0 +1,16 @@
+[project]
+name = "rve-batch"
+version = "0.1.0"
+description = "Batch modelling and calculation scaffold for composite RVE workflows"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pyvista",
+    "vtk",
+    "meshio",
+    "pyyaml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Generated RVE data and solver outputs
+data/intermediate/*
+data/results/*
+data/logs/*
+data/datasets/*
+data/models/*
+output/*
+!data/**/.gitkeep
+
+# Large mesh/result files
+*.vtu
+*.vtk
+*.stp
+*.step
+*.odb
+*.h5
+
+# Local environment overrides
+.env
+configs/local.yaml

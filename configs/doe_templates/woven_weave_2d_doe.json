@@ -1,0 +1,171 @@
+{
+    "output_root": "output",
+    "type_dir": "",
+    "batch_name": "woven_weave_2d_batch0001",
+    "sample_count": 10,
+    "seed": 42,
+    "start_index": 1,
+    "end_index": 10,
+    "prefix": "case",
+    "max_sampling_iterations": 10000,
+    "max_workers": 1,
+    "skip_completed": true,
+    "rerun_failed": false,
+    "analysis_template": "configs/solver/user_RVE_analysis.json",
+    "screenshot": {
+        "enabled": true,
+        "filename": "iso_yarn_visible.png",
+        "hide_yarn_index": -1,
+        "window_size": [
+            1200,
+            900
+        ],
+        "background": "white",
+        "scalars": "YarnIndex",
+        "parallel_projection": true,
+        "show_edges": false,
+        "show_scalar_bar": false
+    },
+    "rve_type": "woven_weave_2d",
+    "base_overrides": {
+        "rve_type": "woven_weave_2d",
+        "mesh": {
+            "export_type": "voxel",
+            "x_voxel": 80,
+            "y_voxel": 80,
+            "z_voxel": 80
+        },
+        "geometry": {
+            "warp_count": 3,
+            "weft_count": 2,
+            "spacing": 1.0,
+            "thick": 0.5,
+            "width": 0.8,
+            "gapsize": 0.0,
+            "angle": 0.0,
+            "layer_count": 0,
+            "swap": [
+                [
+                    0,
+                    1
+                ],
+                [
+                    1,
+                    0
+                ]
+            ],
+            "default_domain": true,
+            "default_domain_height": true
+        },
+        "materials": {
+            "material_0": {
+                "E": 69000000000.0,
+                "nu": 0.2
+            },
+            "material_1": {
+                "E": 4800000000.0,
+                "nu": 0.34
+            }
+        }
+    },
+    "lhs_space": {
+        "mesh.x_voxel": {
+            "min": 40,
+            "max": 120,
+            "type": "int"
+        },
+        "mesh.y_voxel": {
+            "min": 40,
+            "max": 120,
+            "type": "int"
+        },
+        "mesh.z_voxel": {
+            "min": 40,
+            "max": 120,
+            "type": "int"
+        },
+        "geometry.warp_count": {
+            "min": 2,
+            "max": 4,
+            "type": "int"
+        },
+        "geometry.weft_count": {
+            "min": 1,
+            "max": 3,
+            "type": "int"
+        },
+        "geometry.spacing": {
+            "min": 0.7,
+            "max": 1.3
+        },
+        "geometry.thick": {
+            "min": 0.3,
+            "max": 0.7
+        },
+        "geometry.width": {
+            "min": 0.5599999999999999,
+            "max": 1.04
+        },
+        "geometry.gapsize": {
+            "min": 0.0,
+            "max": 0.05
+        },
+        "geometry.angle": {
+            "min": 0.0,
+            "max": 10.0
+        },
+        "geometry.layer_count": {
+            "min": 0,
+            "max": 1,
+            "type": "int"
+        },
+        "geometry.swap[0][0]": {
+            "min": 0,
+            "max": 1,
+            "type": "int"
+        },
+        "geometry.swap[0][1]": {
+            "min": 0,
+            "max": 2,
+            "type": "int"
+        },
+        "geometry.swap[1][0]": {
+            "min": 0,
+            "max": 1,
+            "type": "int"
+        },
+        "geometry.swap[1][1]": {
+            "min": 0,
+            "max": 2,
+            "type": "int"
+        },
+        "materials.material_0.E": {
+            "min": 60000000000.0,
+            "max": 80000000000.0
+        },
+        "materials.material_0.nu": {
+            "min": 0.18,
+            "max": 0.25
+        },
+        "materials.material_1.E": {
+            "min": 3000000000.0,
+            "max": 6000000000.0
+        },
+        "materials.material_1.nu": {
+            "min": 0.3,
+            "max": 0.38
+        }
+    },
+    "constraints": [
+        "width < 0.95 * spacing",
+        "thick < spacing",
+        "swap_0_0 < weft_count",
+        "swap_0_1 < warp_count",
+        "swap_1_0 < weft_count",
+        "swap_1_1 < warp_count",
+        "material_0_E > 0",
+        "material_1_E > 0",
+        "0 < material_0_nu < 0.5",
+        "0 < material_1_nu < 0.5"
+    ]
+}

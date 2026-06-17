@@ -1,0 +1,42 @@
+# 单个 RVE 参数示例，后续也可扩展为参数列表。
+case_id: case_000001
+rve_type: orthogonal_weave_3d
+
+mesh:
+  export_type: voxel
+  x_voxel: 50
+  y_voxel: 50
+  z_voxel: 50
+
+geometry:
+  warp_count: 4
+  weft_count: 5
+  warp_spacing: 1.0
+  weft_spacing: 1.0
+  warp_height: 0.5
+  weft_height: 0.5
+  warp_ratio: 1
+  binder_ratio: 2
+  warp_yarn_width: 0.5
+  weft_yarn_width: 0.5
+  binder_yarn_width: 0.05
+  binder_yarn_height: 0.05
+  binder_yarn_spacing: 0.5
+  warp_layer: 3
+  weft_layer: 4
+  gap_size: 0.0
+  swap:
+    - [0, 1]
+    - [2, 1]
+    - [4, 1]
+    - [1, 2]
+    - [2, 2]
+    - [4, 2]
+  warp_yarn_power: 0.6
+  weft_yarn_power: 0.6
+  binder_yarn_power: 0.6
+
+solver:
+  analysis_template: configs/solver/user_RVE_analysis.template.json
+  load_type: strain
+  load_component: uniaxial_11

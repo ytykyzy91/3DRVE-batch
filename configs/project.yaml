@@ -1,0 +1,23 @@
+# 项目级配置示例。路径可按本机环境修改。
+project:
+  name: 3DRVE_batch
+  root: .
+
+external:
+  texgen_lib_path: ../Texgen_source/texgen3.9/TexGen/Python/libxtra
+  texgen_gui_exe: ../Texgen_source/texgen3.9/TexGen/TexGenGUI.exe
+  solver_exe: D:/Demx_softwares/2025b/Virgo_R2025b_win64/bin/vg_solver.exe
+  solver_config: D:/Demx_softwares/2025C/Plexian_R2025c_fixed_win64/res/PlexianConfig.json
+
+paths:
+  inputs: data/inputs
+  intermediate: data/intermediate
+  results: data/results
+  logs: data/logs
+  datasets: data/datasets
+  models: data/models
+
+runtime:
+  overwrite: false
+  continue_on_error: true
+  max_workers: 1
