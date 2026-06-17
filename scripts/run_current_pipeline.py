@@ -55,7 +55,7 @@ def load_param_overrides(params_json, rve_type):
 
 def update_analysis_template_rve_path(vtu_name):
     """If a local copied analysis template exists, update its rvePath field."""
-    analysis_json = PROJECT_DIR / "configs" / "solver" / "user_RVE_analysis.json"
+    analysis_json = PROJECT_DIR / "configs" / "tools" / "user_RVE_analysis.json"
     if not analysis_json.exists():
         return None
 

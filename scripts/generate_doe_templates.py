@@ -23,7 +23,7 @@ COMMON = {
     "max_workers": 1,
     "skip_completed": True,
     "rerun_failed": False,
-    "analysis_template": "configs/solver/user_RVE_analysis.json",
+    "analysis_template": "configs/tools/user_RVE_analysis.json",
     "screenshot": {
         "enabled": True,
         "filename": "iso_yarn_visible.png",

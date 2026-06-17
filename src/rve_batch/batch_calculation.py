@@ -4,17 +4,39 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 import shutil
+import sys
+import time
 import traceback
+from contextlib import contextmanager
 from pathlib import Path
 
 from rve_batch.doe import generate_lhs_cases
 from rve_batch.modelling import build_model
 from rve_batch.preprocessing.material_cell_data import add_material_cell_data
-from rve_batch.solver.analysis_config import render_analysis_config
 from rve_batch.preprocessing.quality import check_required_cell_data
 from rve_batch.preprocessing.vtu_order import fix_vtu_node_order
+from rve_batch.solver.analysis_config import render_analysis_config
 from rve_batch.visualization import save_vtu_isometric_screenshot
+
+
+@contextmanager
+def silent_texgen():
+    """Silence TexGen C++ stdout/stderr output."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stdout = os.dup(1)
+    old_stderr = os.dup(2)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(old_stdout, 1)
+        os.dup2(old_stderr, 2)
+        os.close(devnull)
+        os.close(old_stdout)
+        os.close(old_stderr)
 
 
 def write_json(path, data):
@@ -130,11 +152,13 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
         "issues": case["issues"],
         "outputs": {},
     }
-    print("*"*50, "\n", "Running case:", case["case_id"], "Valid:", case["valid"], "Issues:", case["issues"])
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] {case['case_id']} | 开始建模 | 采样有效: {case['valid']} | 问题数: {len(case['issues'])}")
     if not case["valid"]:
         status["status"] = "fail"
         status["stage"] = "validate"
         write_json(case_dir / "status.json", status)
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ❌ 失败 | 参数无效")
         return status
 
     try:
@@ -144,8 +168,10 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
 
         params = case["params"]
         params.setdefault("mesh", {})["filename"] = f"{case['case_id']}.vtu"
-        raw_vtu = build_model(case["rve_type"], case_dir, texgen_lib_path, params)
+        with silent_texgen():
+            raw_vtu = build_model(case["rve_type"], case_dir, texgen_lib_path, params)
         status["outputs"]["raw_vtu"] = str(raw_vtu)
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ TexGen建模完成 | VTU节点顺序修正中...")
 
         status["stage"] = "fix_vtu"
         final_vtu = case_dir / f"{raw_vtu.stem}_fix.vtu"
@@ -155,12 +181,14 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
 
         status["stage"] = "material_cell_data"
         add_material_cell_data(final_vtu, final_vtu)
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ Material字段已添加 | 质量检查中...")
 
         status["stage"] = "quality"
         quality = check_required_cell_data(final_vtu, ["YarnIndex", "Material"])
         status["outputs"]["quality"] = quality
         if not quality["ok"]:
             raise RuntimeError(f"Missing CellData fields: {quality['missing']}")
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ 质量检查通过")
 
         if analysis_template:
             status["stage"] = "analysis_config"
@@ -174,10 +202,12 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
                 },
             )
             status["outputs"]["analysis_json"] = str(analysis_json)
+            print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ 求解器模板已生成")
 
         screenshot_config = screenshot_config or {}
         if screenshot_config.get("enabled", False):
             status["stage"] = "screenshot"
+            print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | 🖼️ 生成截图中...")
             screenshot_path = case_dir / screenshot_config.get("filename", f"{case['case_id']}_iso.png")
             save_vtu_isometric_screenshot(
                 final_vtu,
@@ -191,19 +221,23 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
                 show_scalar_bar=screenshot_config.get("show_scalar_bar", False),
             )
             status["outputs"]["screenshot"] = str(screenshot_path)
+            print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ 截图已生成")
 
         cleanup_case_files(case_dir, final_vtu)
         status["status"] = "success"
         status["stage"] = "done"
         write_json(case_dir / "status.json", status)
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | 🎉 全部完成 ✓")
         return status
 
     except Exception as exc:
         status["status"] = "fail"
         status["error"] = str(exc)
         status["traceback"] = traceback.format_exc()
-        cleanup_case_files(case_dir, None)
+        # 失败时保留 _fix.vtu（如果已生成）方便排查，只删除中间临时 VTU
+        cleanup_case_files(case_dir, final_vtu if "final_vtu" in status["outputs"] else None)
         write_json(case_dir / "status.json", status)
+        print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ❌ 失败于阶段: {status.get('stage', 'unknown')} | 错误: {str(exc)[:60]}...")
         return status
 
 
@@ -241,6 +275,15 @@ def run_lhs_batch(
         type_dir = rve_type
     batch_dir = output_root / batch_name if type_dir == "" else output_root / type_dir / batch_name
     batch_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{'='*60}")
+    print(f"[{ts}] LHS 批量建模开始")
+    print(f"  RVE 类型: {rve_type}")
+    print(f"  样本数量: {sample_count}")
+    print(f"  输出目录: {batch_dir}")
+    print(f"  并行线程: {max_workers}")
+    print(f"{'='*60}")
 
     cases = generate_lhs_cases(
         rve_type=rve_type,
@@ -286,10 +329,17 @@ def run_lhs_batch(
             screenshot_config=screenshot_config,
             analysis_template=analysis_template,
         )
-        if skip_completed and existing["status"] == "completed":
-            return skipped_case_status(case, existing["reason"], existing.get("existing"))
-        if not rerun_failed and existing["status"] == "failed":
-            return skipped_case_status(case, existing["reason"], existing.get("existing"))
+
+        # skip_completed=False 表示强制重跑所有，不管之前状态
+        if skip_completed:
+            if existing["status"] == "completed":
+                ts = time.strftime("%H:%M:%S")
+                print(f"[{ts}] {case['case_id']} | ⏭️  跳过 | 已完成")
+                return skipped_case_status(case, existing["reason"], existing.get("existing"))
+            if existing["status"] == "failed" and not rerun_failed:
+                ts = time.strftime("%H:%M:%S")
+                print(f"[{ts}] {case['case_id']} | ⏭️  跳过 | 之前失败 (设置 rerun_failed=true 可重跑)")
+                return skipped_case_status(case, existing["reason"], existing.get("existing"))
         return run_one_case(
             case,
             case_dir,
@@ -330,17 +380,43 @@ def run_lhs_batch(
         ],
     }
     write_json(batch_dir / "batch_summary.json", summary)
+
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"\n{'='*60}")
+    print(f"[{ts}] 批量建模完成")
+    print(f"  总计: {len(cases)} | 成功: {summary['success']} | 失败: {summary['fail']} | 跳过: {summary['skipped']}")
+    if summary["fail"] > 0:
+        failed_cases = [s["case_id"] for s in statuses if s["status"] == "fail"]
+        print(f"  失败样本: {', '.join(failed_cases[:10])}{'...' if len(failed_cases) > 10 else ''}")
+    print(f"  结果文件: {batch_dir / 'batch_summary.json'}")
+    print(f"{'='*60}\n")
+
     return summary
 
 
 def run_lhs_batch_from_config(config_path, texgen_lib_path=None):
     """Run LHS batch from JSON config."""
     config_path = Path(config_path)
+    config_dir = config_path.parent
     config = read_json(config_path)
     if texgen_lib_path is None:
         texgen_lib_path = config.get("texgen_lib_path")
     if texgen_lib_path is None:
         raise ValueError("texgen_lib_path must be provided by config or CLI")
+
+    # 解析 analysis_template 为绝对路径（相对于项目根目录，兼容相对路径写法）
+    analysis_template = config.get("analysis_template", "configs/tools/user_RVE_analysis.json")
+    if analysis_template:
+        template_path = Path(analysis_template)
+        if not template_path.is_absolute():
+            # 相对路径相对于项目根目录（即 config_dir 的父目录）
+            project_root = config_dir.parent if config_dir.name == "configs" else config_dir
+            analysis_template = project_root / template_path
+            if not analysis_template.exists():
+                # 备用：相对于 config 文件所在目录（兼容旧写法）
+                alt_path = config_dir / template_path
+                if alt_path.exists():
+                    analysis_template = alt_path
 
     return run_lhs_batch(
         rve_type=config["rve_type"],
@@ -358,7 +434,7 @@ def run_lhs_batch_from_config(config_path, texgen_lib_path=None):
         constraints=config.get("constraints"),
         screenshot_config=config.get("screenshot"),
         max_sampling_iterations=config.get("max_sampling_iterations", 100),
-        analysis_template=config.get("analysis_template", "configs/solver/user_RVE_analysis.json"),
+        analysis_template=analysis_template,
         max_workers=config.get("max_workers", 1),
         skip_completed=config.get("skip_completed", True),
         rerun_failed=config.get("rerun_failed", False),
