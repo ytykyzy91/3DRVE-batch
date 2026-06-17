@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-import os
 import shutil
-import sys
 import time
 import traceback
-from contextlib import contextmanager
 from pathlib import Path
 
 from rve_batch.doe import generate_lhs_cases
@@ -19,24 +16,6 @@ from rve_batch.preprocessing.quality import check_required_cell_data
 from rve_batch.preprocessing.vtu_order import fix_vtu_node_order
 from rve_batch.solver.analysis_config import render_analysis_config
 from rve_batch.visualization import save_vtu_isometric_screenshot
-
-
-@contextmanager
-def silent_texgen():
-    """Silence TexGen C++ stdout/stderr output."""
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    old_stdout = os.dup(1)
-    old_stderr = os.dup(2)
-    try:
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        yield
-    finally:
-        os.dup2(old_stdout, 1)
-        os.dup2(old_stderr, 2)
-        os.close(devnull)
-        os.close(old_stdout)
-        os.close(old_stderr)
 
 
 def write_json(path, data):
@@ -168,8 +147,7 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
 
         params = case["params"]
         params.setdefault("mesh", {})["filename"] = f"{case['case_id']}.vtu"
-        with silent_texgen():
-            raw_vtu = build_model(case["rve_type"], case_dir, texgen_lib_path, params)
+        raw_vtu = build_model(case["rve_type"], case_dir, texgen_lib_path, params)
         status["outputs"]["raw_vtu"] = str(raw_vtu)
         print(f"[{time.strftime('%H:%M:%S')}] {case['case_id']} | ✅ TexGen建模完成 | VTU节点顺序修正中...")
 
