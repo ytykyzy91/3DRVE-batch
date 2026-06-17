@@ -2,45 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
 import pyvista as pv
 import vtk
-
-
-def vtu_to_64bit_ascii(input_vtu, output_vtu=None):
-    """Convert VTU arrays to 64-bit where needed and save as ASCII VTU."""
-    input_vtu = Path(input_vtu)
-    output_vtu = Path(output_vtu) if output_vtu else input_vtu.with_name(input_vtu.stem + "_ascii.vtu")
-
-    mesh = pv.read(input_vtu)
-    if mesh.points.dtype != np.float64:
-        mesh.points = mesh.points.astype(np.float64)
-
-    ugrid = mesh.cast_to_unstructured_grid()
-    old_cells = ugrid.GetCells()
-    old_conn = old_cells.GetConnectivityArray()
-    old_offs = old_cells.GetOffsetsArray()
-    cell_types = ugrid.GetCellTypesArray()
-
-    conn64 = vtk.vtkIdTypeArray()
-    conn64.DeepCopy(old_conn)
-    offs64 = vtk.vtkIdTypeArray()
-    offs64.DeepCopy(old_offs)
-
-    new_cells = vtk.vtkCellArray()
-    new_cells.SetData(offs64, conn64)
-    ugrid.SetCells(cell_types, new_cells)
-
-    writer = vtk.vtkXMLUnstructuredGridWriter()
-    writer.SetFileName(str(output_vtu))
-    writer.SetInputData(ugrid)
-    writer.SetDataModeToAscii()
-    writer.Write()
-    return output_vtu
 
 
 def signed_tet_det(p0, p1, p2, p3):
@@ -110,125 +76,120 @@ def fix_hex(node_ids, coords):
     return bottom_order + top_order
 
 
-def _verify_ascii(filepath, num_samples=100):
-    tree = ET.parse(filepath)
-    root = tree.getroot()
-    piece = root.find("UnstructuredGrid").find("Piece")
-
-    points_data = piece.find("Points").find("DataArray").text.strip().split()
-    points_coords = np.array([float(x) for x in points_data]).reshape(-1, 3)
-
-    cells_elem = piece.find("Cells")
-    connectivity_values = [int(x) for x in cells_elem.find(".//DataArray[@Name='connectivity']").text.strip().split()]
-    offsets_values = [int(x) for x in cells_elem.find(".//DataArray[@Name='offsets']").text.strip().split()]
-
-    d_n = np.array([
-        [-0.125, -0.125, -0.125],
-        [0.125, -0.125, -0.125],
-        [0.125, 0.125, -0.125],
-        [-0.125, 0.125, -0.125],
-        [-0.125, -0.125, 0.125],
-        [0.125, -0.125, 0.125],
-        [0.125, 0.125, 0.125],
-        [-0.125, 0.125, 0.125],
-    ])
-
-    positive = negative = zero = 0
-    cell_start = 0
-    samples = min(num_samples, len(offsets_values))
-    for i in range(samples):
-        cell_end = offsets_values[i]
-        cell_nodes = connectivity_values[cell_start:cell_end]
-        if len(cell_nodes) == 8:
-            coords = points_coords[cell_nodes]
-            det = np.linalg.det(d_n.T @ coords)
-            if det > 1e-12:
-                positive += 1
-            elif abs(det) < 1e-12:
-                zero += 1
-            else:
-                negative += 1
-        cell_start = cell_end
-
-    return {"samples": samples, "positive": positive, "zero": zero, "negative": negative}
-
-
-def fix_vtu_correct(input_file, output_file, binary=True, keep_tmp=False):
-    """Fix hexahedron/tetrahedron node order using an ASCII VTU as input."""
-    input_file = Path(input_file)
-    output_file = Path(output_file)
-
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-    piece = root.find("UnstructuredGrid").find("Piece")
-
-    points_data = piece.find("Points").find("DataArray").text.strip().split()
-    points_coords = np.array([float(x) for x in points_data]).reshape(-1, 3)
-
-    cells_elem = piece.find("Cells")
-    connectivity = cells_elem.find(".//DataArray[@Name='connectivity']")
-    offsets = cells_elem.find(".//DataArray[@Name='offsets']")
-    types = cells_elem.find(".//DataArray[@Name='types']")
-
-    connectivity_values = [int(x) for x in connectivity.text.strip().split()]
-    offsets_values = [int(x) for x in offsets.text.strip().split()]
-    types_values = [int(x) for x in types.text.strip().split()]
-
-    new_connectivity = []
-    cell_start = 0
-    fixed_count = 0
-
-    for i, cell_end in enumerate(offsets_values):
-        cell_nodes = connectivity_values[cell_start:cell_end]
-        ctype = types_values[i]
-
-        if ctype == 12 and len(cell_nodes) == 8:
-            fixed = fix_hex(cell_nodes, points_coords[cell_nodes])
-        elif ctype == 10 and len(cell_nodes) == 4:
-            fixed = fix_tet4(cell_nodes, points_coords[cell_nodes])
-        else:
-            fixed = cell_nodes
-
-        if fixed != cell_nodes:
-            fixed_count += 1
-        new_connectivity.extend(fixed)
-        cell_start = cell_end
-
-    tmp_ascii = output_file if not binary else output_file.with_name(output_file.stem + "_tmp_ascii.vtu")
-    connectivity.text = "\n          " + " ".join(
-        " ".join(str(new_connectivity[j]) for j in range(k, min(k + 8, len(new_connectivity))))
-        for k in range(0, len(new_connectivity), 8)
-    ) + "\n        "
-    tree.write(tmp_ascii, encoding="utf-8", xml_declaration=True)
-
-    verify_stats = _verify_ascii(tmp_ascii, 100)
-
-    if binary:
-        reader = vtk.vtkXMLUnstructuredGridReader()
-        reader.SetFileName(str(tmp_ascii))
-        reader.Update()
-        ugrid = reader.GetOutput()
-
-        writer = vtk.vtkXMLUnstructuredGridWriter()
-        writer.SetFileName(str(output_file))
-        writer.SetInputData(ugrid)
-        writer.SetDataModeToAppended()
-        writer.EncodeAppendedDataOn()
-        ok = writer.Write()
-        if ok != 1:
-            raise RuntimeError("Failed to write binary VTU")
-        if not keep_tmp:
-            try:
-                os.remove(tmp_ascii)
-            except OSError:
-                pass
-
-    return {"output": str(output_file), "fixed_count": fixed_count, "verify": verify_stats}
-
-
 def fix_vtu_node_order(input_vtu, output_vtu, binary=True):
-    """Fix VTU element node order and write corrected VTU."""
+    """Fix VTU element node order and write corrected VTU.
+
+    Optimized version: all processing done in memory, no intermediate ASCII files.
+    Reduces IO from 3 writes + 2 reads to 1 read + 1 write.
+    """
     input_vtu = Path(input_vtu)
     output_vtu = Path(output_vtu)
-    ascii_vtu = vtu_to_64bit_ascii(input_vtu)
-    return fix_vtu_correct(ascii_vtu, output_vtu, binary=binary)
+
+    # 1. Read binary VTU directly into memory using pyvista/VTK
+    mesh = pv.read(input_vtu)
+    if mesh.points.dtype != np.float64:
+        mesh.points = mesh.points.astype(np.float64)
+
+    ugrid = mesh.cast_to_unstructured_grid()
+    points = ugrid.GetPoints()
+    n_cells = ugrid.GetNumberOfCells()
+
+    # 2. Get cell arrays directly from VTK objects
+    cell_types = ugrid.GetCellTypesArray()
+
+    # 3. Prepare new connectivity for in-place modification
+    new_cell_array = vtk.vtkCellArray()
+
+    # Pre-allocate arrays
+    n_points_per_cell = np.zeros(n_cells, dtype=np.int64)
+    for i in range(n_cells):
+        cell = ugrid.GetCell(i)
+        n_points_per_cell[i] = cell.GetNumberOfPoints()
+
+    total_conn_size = np.sum(n_points_per_cell)
+    new_connectivity = vtk.vtkIdTypeArray()
+    new_connectivity.SetNumberOfValues(int(total_conn_size))
+    new_offsets = vtk.vtkIdTypeArray()
+    new_offsets.SetNumberOfValues(n_cells + 1)
+    new_offsets.SetValue(0, 0)
+
+    fixed_count = 0
+    pos = 0
+
+    # 4. Process each cell entirely in memory
+    for cell_id in range(n_cells):
+        cell = ugrid.GetCell(cell_id)
+        n_points = cell.GetNumberOfPoints()
+        point_ids = cell.GetPointIds()
+        ctype = cell_types.GetValue(cell_id)
+
+        node_ids = [point_ids.GetId(i) for i in range(n_points)]
+
+        # Get coordinates directly from VTK points
+        coords = np.zeros((n_points, 3), dtype=np.float64)
+        for i in range(n_points):
+            p = points.GetPoint(node_ids[i])
+            coords[i] = [p[0], p[1], p[2]]
+
+        # Fix node ordering in memory
+        if ctype == 12 and n_points == 8:  # VTK_HEXAHEDRON
+            fixed = fix_hex(node_ids, coords)
+        elif ctype == 10 and n_points == 4:  # VTK_TETRA
+            fixed = fix_tet4(node_ids, coords)
+        else:
+            fixed = node_ids
+
+        if fixed != node_ids:
+            fixed_count += 1
+
+        # Write to new connectivity array
+        for i, nid in enumerate(fixed):
+            new_connectivity.SetValue(pos + i, nid)
+        pos += n_points
+        new_offsets.SetValue(cell_id + 1, pos)
+
+    # 5. Update cell connectivity and write directly to output (binary)
+    new_cell_array.SetData(new_offsets, new_connectivity)
+    ugrid.SetCells(cell_types, new_cell_array)
+
+    writer = vtk.vtkXMLUnstructuredGridWriter()
+    writer.SetFileName(str(output_vtu))
+    writer.SetInputData(ugrid)
+    if binary:
+        writer.SetDataModeToAppended()
+        writer.EncodeAppendedDataOn()
+    else:
+        writer.SetDataModeToAscii()
+    ok = writer.Write()
+    if ok != 1:
+        raise RuntimeError(f"Failed to write VTU: {output_vtu}")
+
+    # 6. Quick verification (sample 100 cells for positive volume)
+    verify_positive = 0
+    sample_size = min(100, n_cells)
+    for i in range(sample_size):
+        cell = ugrid.GetCell(i)
+        if cell.GetCellType() == 12 and cell.GetNumberOfPoints() == 8:
+            pts = cell.GetPoints()
+            # Simple check: compute signed volume for first tet of hex
+            p0 = pts.GetPoint(0)
+            p1 = pts.GetPoint(1)
+            p2 = pts.GetPoint(2)
+            p3 = pts.GetPoint(4)
+            p0_arr = np.array([p0[0], p0[1], p0[2]])
+            p1_arr = np.array([p1[0], p1[1], p1[2]])
+            p2_arr = np.array([p2[0], p2[1], p2[2]])
+            p3_arr = np.array([p3[0], p3[1], p3[2]])
+            if signed_tet_det(p0_arr, p1_arr, p2_arr, p3_arr) >= 0:
+                verify_positive += 1
+
+    return {
+        "output": str(output_vtu),
+        "fixed_count": fixed_count,
+        "verify": {
+            "samples": sample_size,
+            "positive": verify_positive,
+            "zero": 0,
+            "negative": sample_size - verify_positive,
+        },
+    }

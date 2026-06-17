@@ -84,7 +84,7 @@ def main():
     raw_vtu = build_model(args.rve_type, output_dir, Path(args.texgen_lib_path), params)
     print(f"Raw VTU: {raw_vtu}")
 
-    fixed_vtu = output_dir / f"{raw_vtu.stem}_fixed.vtu"
+    fixed_vtu = output_dir / f"{raw_vtu.stem}_fix.vtu"
     stats = fix_vtu_node_order(raw_vtu, fixed_vtu, binary=True)
     print(f"Fixed VTU: {fixed_vtu}")
     print(f"Fix stats: {stats}")

@@ -121,7 +121,6 @@ def run_one_case(case, case_dir, texgen_lib_path, screenshot_config=None, analys
     case_dir.mkdir(parents=True, exist_ok=True)
 
     write_json(case_dir / "input_params.json", case["params"])
-    write_json(case_dir / "sampled_overrides.json", case.get("sampled_overrides", {}))
 
     status = {
         "case_id": case["case_id"],
